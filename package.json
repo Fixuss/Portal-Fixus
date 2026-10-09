@@ -7,6 +7,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "fixus-afip": "github:Fixuss/fixus-shared#5aadf3e",
     "next": "14.2.29",
     "react": "^18",
     "react-dom": "^18"
