@@ -243,10 +243,15 @@ function LoginScreen({ onLogin }) {
   const [enviando, setEnviando] = useState(false)
 
   useEffect(() => {
+    // Etapa 7 (revisión de seguridad, 12-oct-2026): /api/usuarios ahora
+    // devuelve solo {id, nombre, inicial} de usuarios ya activos (el
+    // filtrado por activo pasó a hacerse en el servidor, en
+    // usuarios-directorio) — ya no incluye el campo `activo`, así que no
+    // hay que filtrar por él acá.
     fetch('/api/usuarios')
       .then(r => r.json())
       .then(data => {
-        setUsuarios((data?.usuarios || []).filter(u => u.activo))
+        setUsuarios(data?.usuarios || [])
       })
       .catch(() => setError('No se pudo cargar la lista de usuarios'))
       .finally(() => setCargando(false))
