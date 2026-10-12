@@ -377,12 +377,12 @@ function UsuariosAdmin({ token }) {
 
   const cargar = useCallback(() => {
     setCargando(true)
-    fetch('/api/usuarios')
+    fetch('/api/usuarios-admin', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => setUsuarios(data?.usuarios || []))
       .catch(() => setError('No se pudo cargar la lista de usuarios'))
       .finally(() => setCargando(false))
-  }, [])
+  }, [token])
 
   useEffect(() => { cargar() }, [cargar])
 
@@ -390,7 +390,7 @@ function UsuariosAdmin({ token }) {
     setGuardando(true)
     setError('')
     try {
-      const resp = await fetch('/api/usuarios', {
+      const resp = await fetch('/api/usuarios-admin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(form),

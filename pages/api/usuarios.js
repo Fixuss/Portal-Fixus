@@ -1,56 +1,40 @@
-// Etapa 3 del plan de unificación — alta de usuarios gestionable.
+// Etapa 3 del plan de unificación (alta de usuarios) — restringido en la
+// Etapa 7 (revisión de seguridad, 12-oct-2026).
 //
-// Proxy server-to-server hacia fixus-cobros (dueño de la entidad Usuario).
-// El navegador nunca conoce PORTAL_SECRET ni AUTH_SECRET.
+// Este endpoint es público (sin login) porque lo usa la pantalla de login
+// para mostrar el selector de "quién entra" — por eso ahora SOLO expone lo
+// mínimo necesario para eso: id, nombre e inicial de usuarios activos. Antes
+// devolvía también email, rol y el estado activo/inactivo de TODO el
+// padrón, sin ningún control — eso quedó movido a /api/usuarios-admin.js,
+// que exige sesión de un usuario con rol 'dueño'.
 //
-// GET  -> lista de usuarios (sin passwordHash) — la usa la pantalla de login
-//         (elegir quién entra) y, filtrada en el cliente, la de alta.
-// POST -> crear/editar un usuario — exige un token de sesión vigente con rol
-//         'dueño' (Authorization: Bearer <token>, el mismo que devuelve
-//         /api/login), verificado acá con AUTH_SECRET antes de reenviar.
-
-import { verifySession } from 'fixus-afip'
+// Reutiliza el directorio de solo-lectura que fixus-cobros ya expone para
+// las demás apps (protegido con AUTH_SECRET, nunca llega al navegador) y
+// recorta la respuesta antes de devolverla.
 
 export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Método no permitido' })
+  }
+
   const cobrosUrl = process.env.FIXUS_COBROS_URL
-  const portalSecret = process.env.PORTAL_SECRET
-  if (!cobrosUrl || !portalSecret) {
-    return res.status(500).json({ error: 'FIXUS_COBROS_URL o PORTAL_SECRET no configurados en este proyecto' })
+  const authSecret = process.env.AUTH_SECRET
+  if (!cobrosUrl || !authSecret) {
+    return res.status(500).json({ error: 'FIXUS_COBROS_URL o AUTH_SECRET no configurados en este proyecto' })
   }
 
-  if (req.method === 'GET') {
-    try {
-      const resp = await fetch(`${cobrosUrl.replace(/\/$/, '')}/api/admin/usuarios`, {
-        headers: { Authorization: `Bearer ${portalSecret}` },
-      })
-      const data = await resp.json().catch(() => null)
-      return res.status(resp.status).json(data)
-    } catch (err) {
-      console.error('usuarios proxy (GET) error:', err)
-      return res.status(502).json({ error: 'No se pudo contactar a fixus-cobros' })
+  try {
+    const resp = await fetch(`${cobrosUrl.replace(/\/$/, '')}/api/usuarios-directorio`, {
+      headers: { Authorization: `Bearer ${authSecret}` },
+    })
+    const data = await resp.json().catch(() => null)
+    if (!resp.ok || !data?.ok) {
+      return res.status(resp.status).json({ error: 'No se pudo cargar la lista de usuarios' })
     }
+    const usuarios = (data.usuarios || []).map(u => ({ id: u.id, nombre: u.nombre, inicial: u.inicial }))
+    return res.status(200).json({ ok: true, usuarios })
+  } catch (err) {
+    console.error('usuarios (GET) error:', err)
+    return res.status(502).json({ error: 'No se pudo contactar a fixus-cobros' })
   }
-
-  if (req.method === 'POST') {
-    const authSecret = process.env.AUTH_SECRET
-    const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '')
-    const sesion = verifySession(token, authSecret)
-    if (!sesion || sesion.rol !== 'dueño') {
-      return res.status(403).json({ error: 'Solo un usuario con rol dueño puede dar de alta o editar usuarios' })
-    }
-    try {
-      const resp = await fetch(`${cobrosUrl.replace(/\/$/, '')}/api/admin/usuarios`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${portalSecret}` },
-        body: JSON.stringify(req.body),
-      })
-      const data = await resp.json().catch(() => null)
-      return res.status(resp.status).json(data)
-    } catch (err) {
-      console.error('usuarios proxy (POST) error:', err)
-      return res.status(502).json({ error: 'No se pudo contactar a fixus-cobros' })
-    }
-  }
-
-  return res.status(405).json({ error: 'Método no permitido' })
 }
