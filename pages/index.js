@@ -37,8 +37,8 @@ const APPS = [
   },
   {
     id: 'evaluador',
-    nombre: 'Evaluador',
-    descripcion: 'Evaluación crediticia de empresas',
+    nombre: 'Generador de Reseñas',
+    descripcion: 'Perfil cualitativo de empresas y reseña corporativa con IA',
     url: 'https://evaluador-fixus.vercel.app',
     icon: '📊',
     color: '#7c3aed',
