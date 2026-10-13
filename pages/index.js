@@ -67,6 +67,23 @@ const APPS = [
   },
 ]
 
+// Etapa 6 del plan de unificación — "Portal como hub real".
+// Mismos id/label/color que ETAPAS en tablero-fixus/lib/tablero.js, solo
+// para mostrar (no se vuelve a calcular nada de dinero acá, ver
+// fixus-cobros/app/api/portal-resumen/route.ts para el por qué).
+const ETAPA_INFO = {
+  nuevo:               { label: 'Nuevo',               color: '#64748B', bg: '#F8FAFC' },
+  contactado:          { label: 'Contactado',          color: '#4a69cc', bg: '#eef2ff' },
+  doc_solicitada:      { label: 'Doc. solicitada',     color: '#0891b2', bg: '#ecfeff' },
+  doc_recibida:        { label: 'Doc. recibida',       color: '#7C3AED', bg: '#F5F3FF' },
+  en_calificacion:     { label: 'En calificación',     color: '#D97706', bg: '#FFFBEB' },
+  calificado_parcial:  { label: 'Calificado parcial',  color: '#DB2777', bg: '#FDF2F8' },
+  calificado:          { label: 'Calificado ✓',        color: '#059669', bg: '#ECFDF5' },
+  rechazado:           { label: 'Rechazado',           color: '#DC2626', bg: '#FEF2F2' },
+  en_liquidacion:      { label: 'En liquidación',      color: '#c2410c', bg: '#fff7ed' },
+  liquidado:           { label: 'Liquidado ✓',         color: '#065f46', bg: '#d1fae5' },
+}
+
 const SESSION_KEY = 'fixus_portal_sesion' // { token, usuario, exp }
 
 function appUrlConSesion(app, token) {
@@ -114,7 +131,7 @@ export default function Portal() {
     }}>
       <Header usuario={sesion.usuario} vista={vista} onCambiarVista={setVista} onLogout={handleLogout} />
 
-      <div style={{ maxWidth: 800, margin: '0 auto', padding: '48px 24px' }}>
+      <div style={{ maxWidth: vista === 'apps' ? 980 : 800, margin: '0 auto', padding: '48px 24px' }}>
         {vista === 'apps' ? (
           <AppsGrid usuario={sesion.usuario} token={sesion.token} />
         ) : (
@@ -183,6 +200,8 @@ function AppsGrid({ usuario, token }) {
         </div>
       </div>
 
+      <ResumenPipeline token={token} />
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, alignItems: 'stretch' }}>
         {APPS.map(app => (
           <a
@@ -231,6 +250,131 @@ function AppsGrid({ usuario, token }) {
         ))}
       </div>
     </>
+  )
+}
+
+// Etapa 6 del plan de unificación — "Portal como hub real".
+// Resumen del pipeline (conteos + alertas de SGR por vencer/vencidas) y una
+// lista corta de clientes, antes de que el usuario elija qué app abrir.
+// A propósito no muestra nada de Disponible/Liquidado (ver comentario en
+// fixus-cobros/app/api/portal-resumen/route.ts) — si algo de esto falla,
+// no debe tapar ni romper el resto del Portal, por eso el error se muestra
+// chico y no bloquea el acceso a las apps.
+function ResumenPipeline({ token }) {
+  const [datos, setDatos] = useState(null)
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let activo = true
+    fetch('/api/resumen', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (!activo) return
+        if (!data?.ok) {
+          setError('No se pudo cargar el resumen del pipeline')
+          return
+        }
+        setDatos(data)
+      })
+      .catch(() => { if (activo) setError('No se pudo cargar el resumen del pipeline') })
+      .finally(() => { if (activo) setCargando(false) })
+    return () => { activo = false }
+  }, [token])
+
+  if (cargando) {
+    return <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 32 }}>Cargando resumen…</div>
+  }
+  if (error || !datos) {
+    // No bloquea el acceso a las apps — solo no se muestra el resumen.
+    return error ? (
+      <div style={{ color: '#94a3b8', fontSize: 12, marginBottom: 24 }}>{error}</div>
+    ) : null
+  }
+
+  const { resumen, clientes } = datos
+  const etapasConDatos = Object.entries(resumen.porEtapa || {}).filter(([, n]) => n > 0)
+
+  return (
+    <div style={{ marginBottom: 36 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 16 }}>
+        <ResumenCard label="Prospectos" valor={resumen.totalProspectos} />
+        <ResumenCard label="Clientes" valor={resumen.totalClientes} />
+        <ResumenCard label="SGR vencidas" valor={resumen.alertasVencidas} alerta={resumen.alertasVencidas > 0 ? 'vencida' : null} />
+        <ResumenCard label="SGR por vencer" valor={resumen.alertasPorVencer} alerta={resumen.alertasPorVencer > 0 ? 'por_vencer' : null} />
+      </div>
+
+      {etapasConDatos.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+          {etapasConDatos.map(([etapa, n]) => {
+            const info = ETAPA_INFO[etapa] || { label: etapa, color: '#64748b', bg: '#f8fafc' }
+            return (
+              <div key={etapa} style={{
+                background: info.bg, color: info.color, fontSize: 12, fontWeight: 600,
+                borderRadius: 20, padding: '5px 12px',
+              }}>
+                {info.label}: {n}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {clientes.length > 0 && (
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+          {clientes.slice(0, 8).map(c => {
+            const info = ETAPA_INFO[c.etapa] || { label: c.etapa, color: '#64748b', bg: '#f8fafc' }
+            return (
+              <div key={c.id} style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+                borderBottom: '1px solid #f1f5f9',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#0e2c50', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {c.razon}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>{c.cuit}</div>
+                </div>
+                {c.alerta && (
+                  <div style={{
+                    fontSize: 11, fontWeight: 700, borderRadius: 6, padding: '3px 8px',
+                    color: c.alerta === 'vencida' ? '#DC2626' : '#D97706',
+                    background: c.alerta === 'vencida' ? '#FEF2F2' : '#FFFBEB',
+                    flexShrink: 0,
+                  }}>
+                    {c.alerta === 'vencida' ? 'SGR vencida' : 'SGR por vencer'}
+                  </div>
+                )}
+                <div style={{
+                  fontSize: 11, fontWeight: 600, color: info.color, background: info.bg,
+                  borderRadius: 6, padding: '3px 8px', flexShrink: 0, whiteSpace: 'nowrap',
+                }}>
+                  {info.label}
+                </div>
+              </div>
+            )
+          })}
+          {clientes.length > 8 && (
+            <div style={{ padding: '10px 16px', textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
+              Y {clientes.length - 8} más — ver el detalle completo en el Tablero.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ResumenCard({ label, valor, alerta }) {
+  const colorAlerta = alerta === 'vencida' ? '#DC2626' : alerta === 'por_vencer' ? '#D97706' : '#0e2c50'
+  return (
+    <div style={{
+      background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
+      padding: '14px 16px',
+    }}>
+      <div style={{ fontSize: 24, fontWeight: 800, color: colorAlerta }}>{valor}</div>
+      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{label}</div>
+    </div>
   )
 }
 
